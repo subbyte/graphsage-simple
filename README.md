@@ -10,10 +10,14 @@ Currently, only supervised versions of GraphSAGE-mean and GraphSAGE-GCN are impl
 
 #### Requirements
 
-pytorch >0.2 is required.
+Xiaokui update the code to run in the following environment:
+
+- Python 3
+- PyTorch 1.3
+- no GPU in this version
 
 #### Running examples
 
-Execute `python -m graphsage.model` to run the Cora example.
-It assumes that CUDA is not being used, but modifying the run functions in `model.py` in the obvious way can change this.
-There is also a pubmed example (called via the `run_pubmed` function in model.py).
+Run on Cora dataset: `python -m graphsage.model`.
+
+Edit `graphsage/model.py` to enable the pubmed dataset.
