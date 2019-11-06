@@ -1,7 +1,5 @@
 import torch
-import torch.nn as nn
-from torch.nn import init
-from torch.autograd import Variable
+from torch.nn import Module, CrossEntropyLoss, Parameter, Embedding, init
 
 import numpy as np
 import time
@@ -17,15 +15,15 @@ Simple supervised GraphSAGE model as well as examples running the model
 on the Cora and Pubmed datasets.
 """
 
-class SupervisedGraphSage(nn.Module):
+class SupervisedGraphSage(Module):
 
     def __init__(self, num_classes, enc):
-        super(SupervisedGraphSage, self).__init__()
+        super().__init__()
         self.enc = enc
-        self.xent = nn.CrossEntropyLoss()
+        self.xent = CrossEntropyLoss()
 
-        self.weight = nn.Parameter(torch.FloatTensor(num_classes, enc.embed_dim))
-        init.xavier_uniform(self.weight)
+        self.weight = Parameter(torch.empty(num_classes, enc.embed_dim))
+        init.xavier_uniform_(self.weight)
 
     def forward(self, nodes):
         embeds = self.enc(nodes)
@@ -46,7 +44,7 @@ def load_cora():
     with open("cora/cora.content") as fp:
         for i,line in enumerate(fp):
             info = line.strip().split()
-            feat_data[i,:] = map(float, info[1:-1])
+            feat_data[i,:] = list(map(float, info[1:-1]))
             node_map[info[0]] = i
             if not info[-1] in label_map:
                 label_map[info[-1]] = len(label_map)
@@ -67,43 +65,55 @@ def run_cora():
     random.seed(1)
     num_nodes = 2708
     feat_data, labels, adj_lists = load_cora()
-    features = nn.Embedding(2708, 1433)
-    features.weight = nn.Parameter(torch.FloatTensor(feat_data), requires_grad=False)
-   # features.cuda()
+    features = Embedding(2708, 1433)
+    features.weight = Parameter( torch.tensor(feat_data, dtype=torch.float)
+                               , requires_grad=False
+                               )
 
-    agg1 = MeanAggregator(features, cuda=True)
-    enc1 = Encoder(features, 1433, 128, adj_lists, agg1, gcn=True, cuda=False)
-    agg2 = MeanAggregator(lambda nodes : enc1(nodes).t(), cuda=False)
-    enc2 = Encoder(lambda nodes : enc1(nodes).t(), enc1.embed_dim, 128, adj_lists, agg2,
-            base_model=enc1, gcn=True, cuda=False)
+    agg1 = MeanAggregator(features)
+    enc1 = Encoder(features, 1433, 128, adj_lists, agg1, gcn=True)
+    agg2 = MeanAggregator(lambda nodes : enc1(nodes).t())
+    enc2 = Encoder( lambda nodes : enc1(nodes).t()
+                  , enc1.embed_dim
+                  , 128
+                  , adj_lists
+                  , agg2
+                  , base_model=enc1
+                  , gcn=True
+                  )
     enc1.num_samples = 5
     enc2.num_samples = 5
 
     graphsage = SupervisedGraphSage(7, enc2)
-#    graphsage.cuda()
     rand_indices = np.random.permutation(num_nodes)
     test = rand_indices[:1000]
     val = rand_indices[1000:1500]
     train = list(rand_indices[1500:])
 
-    optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, graphsage.parameters()), lr=0.7)
+    all_grad_params = filter(lambda p : p.requires_grad, graphsage.parameters())
+    optimizer = torch.optim.SGD(all_grad_params, lr=0.7)
     times = []
     for batch in range(100):
         batch_nodes = train[:256]
         random.shuffle(train)
         start_time = time.time()
         optimizer.zero_grad()
-        loss = graphsage.loss(batch_nodes, 
-                Variable(torch.LongTensor(labels[np.array(batch_nodes)])))
+        loss = graphsage.loss( batch_nodes
+                             , torch.tensor(labels[np.array(batch_nodes)])
+                             )
         loss.backward()
         optimizer.step()
         end_time = time.time()
         times.append(end_time-start_time)
-        print batch, loss.data[0]
+        print(batch, loss.item())
 
     val_output = graphsage.forward(val) 
-    print "Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro")
-    print "Average batch time:", np.mean(times)
+    print( "Validation F1:"
+         , f1_score(labels[val]
+         , val_output.data.numpy().argmax(axis=1)
+         , average="micro")
+         )
+    print("Average batch time:", np.mean(times))
 
 def load_pubmed():
     #hardcoded for simplicity...
@@ -139,43 +149,55 @@ def run_pubmed():
     random.seed(1)
     num_nodes = 19717
     feat_data, labels, adj_lists = load_pubmed()
-    features = nn.Embedding(19717, 500)
-    features.weight = nn.Parameter(torch.FloatTensor(feat_data), requires_grad=False)
-   # features.cuda()
+    features = Embedding(19717, 500)
+    features.weight = Parameter( torch.tensor(feat_data, dtype=torch.float)
+                               , requires_grad=False
+                               )
 
-    agg1 = MeanAggregator(features, cuda=True)
-    enc1 = Encoder(features, 500, 128, adj_lists, agg1, gcn=True, cuda=False)
-    agg2 = MeanAggregator(lambda nodes : enc1(nodes).t(), cuda=False)
-    enc2 = Encoder(lambda nodes : enc1(nodes).t(), enc1.embed_dim, 128, adj_lists, agg2,
-            base_model=enc1, gcn=True, cuda=False)
+    agg1 = MeanAggregator(features)
+    enc1 = Encoder(features, 500, 128, adj_lists, agg1, gcn=True)
+    agg2 = MeanAggregator(lambda nodes : enc1(nodes).t())
+    enc2 = Encoder( lambda nodes : enc1(nodes).t()
+                  , enc1.embed_dim
+                  , 128
+                  , adj_lists
+                  , agg2
+                  , base_model=enc1
+                  , gcn=True
+                  )
     enc1.num_samples = 10
     enc2.num_samples = 25
 
     graphsage = SupervisedGraphSage(3, enc2)
-#    graphsage.cuda()
     rand_indices = np.random.permutation(num_nodes)
     test = rand_indices[:1000]
     val = rand_indices[1000:1500]
     train = list(rand_indices[1500:])
 
-    optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, graphsage.parameters()), lr=0.7)
+    all_grad_params = filter(lambda p : p.requires_grad, graphsage.parameters())
+    optimizer = torch.optim.SGD(all_grad_params, lr=0.7)
     times = []
     for batch in range(200):
         batch_nodes = train[:1024]
         random.shuffle(train)
         start_time = time.time()
         optimizer.zero_grad()
-        loss = graphsage.loss(batch_nodes, 
-                Variable(torch.LongTensor(labels[np.array(batch_nodes)])))
+        loss = graphsage.loss( batch_nodes
+                             , torch.tensor(labels[np.array(batch_nodes)])
+                             )
         loss.backward()
         optimizer.step()
         end_time = time.time()
         times.append(end_time-start_time)
-        print batch, loss.data[0]
+        print(batch, loss.item())
 
     val_output = graphsage.forward(val) 
-    print "Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro")
-    print "Average batch time:", np.mean(times)
+    print( "Validation F1:"
+         , f1_score(labels[val]
+         , val_output.data.numpy().argmax(axis=1)
+         , average="micro")
+         )
+    print("Average batch time:", np.mean(times))
 
 if __name__ == "__main__":
     run_cora()
